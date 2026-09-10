@@ -74,7 +74,7 @@ jobs:
       - name: Set up Ota from its contract-owned pressure source
         id: ota
         continue-on-error: true
-        uses: ota-run/setup@493cba84bf7f7c11e9e8e996d832d93a89c62184 # v1.0.8
+        uses: ota-run/setup@493cba84bf7f7c11c9e8e996d832d93a89c62184 # v1.0.8
         with:
           source: contract
           contract-path: ota.yaml
@@ -180,7 +180,7 @@ jobs:
       - name: Set up Ota from its contract-owned pressure source
         id: ota
         continue-on-error: true
-        uses: ota-run/setup@493cba84bf7f7c11e9e8e996d832d93a89c62184 # v1.0.8
+        uses: ota-run/setup@493cba84bf7f7c11c9e8e996d832d93a89c62184 # v1.0.8
         with:
           source: contract
           contract-path: ota.yaml
