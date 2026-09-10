@@ -1,0 +1,260 @@
+name: "Evidence: Ota adoption (non-blocking)"
+
+on:
+  push:
+    branches:
+      - ota-adoption
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-ci-drift:
+    name: Contract-to-CI drift
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compare contract-owned verification with repository CI
+        uses: ota-run/action@6bb5bf686df5a8385202c8c20b6f91c045e3c161 # v1.0.15
+        with:
+          command: doctor
+          source: contract
+          fail-on-error: false
+          fail-on-ci-drift: false
+          comment-pr: false
+
+  native:
+    name: Ota contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare retained evidence
+        shell: bash
+        run: mkdir -p ota-pressure/native
+
+      - name: Set up Node for the repository-owned runtime regression
+        id: node
+        continue-on-error: true
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 18.20.4
+
+      - name: Set up repository toolchain
+        id: toolchain
+        continue-on-error: true
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: 1.97.1
+          task: "true"
+          tools: cargo-nextest
+          nfpm: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up WiX for the Windows determinism tests
+        id: wix
+        continue-on-error: true
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          printf '%s\n' 'C:\Program Files (x86)\WiX Toolset v3.14\bin' >> "$GITHUB_PATH"
+          dotnet tool install --global wix || dotnet tool update --global wix
+
+      - name: Set up Ota from its contract-owned pressure source
+        id: ota
+        continue-on-error: true
+        uses: ota-run/setup@493cba84bf7f7c11e9e8e996d832d93a89c62184 # v1.0.8
+        with:
+          source: contract
+          contract-path: ota.yaml
+
+      - name: Record exact toolchain posture
+        id: posture
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          rustc --version --verbose > ota-pressure/native/rustc-version.txt
+          cargo --version --verbose > ota-pressure/native/cargo-version.txt
+          node --version > ota-pressure/native/node-version.txt
+          task --version > ota-pressure/native/task-version.txt
+          cargo nextest --version > ota-pressure/native/nextest-version.txt
+          ota --version > ota-pressure/native/ota-version.txt
+
+      - name: Validate contract
+        id: validate
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota validate . 2>&1 | tee ota-pressure/native/validate.txt
+
+      - name: Diagnose bounded readiness
+        id: doctor
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota doctor . --json > ota-pressure/native/doctor.json
+
+      - name: Preview the selected native graph
+        id: preview
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota up --workflow verify --native --agent --dry-run . --json > ota-pressure/native/up-dry-run.json
+
+      - name: Run bounded native verification
+        id: verify
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          before_lock="$(git hash-object Cargo.lock)"
+          ota run verify --native --agent --stream . 2>&1 | tee ota-pressure/native/verify.txt
+          test "$(git hash-object Cargo.lock)" = "$before_lock"
+          git diff --exit-code -- Cargo.lock
+          git diff --exit-code
+
+      - name: Record exact lane outcomes
+        if: always()
+        shell: bash
+        run: |
+          cat > ota-pressure/native/outcomes.txt <<EOF
+          revision=${GITHUB_SHA}
+          os=${{ matrix.os }}
+          node=${{ steps.node.outcome }}
+          toolchain=${{ steps.toolchain.outcome }}
+          wix=${{ steps.wix.outcome }}
+          ota=${{ steps.ota.outcome }}
+          posture=${{ steps.posture.outcome }}
+          validate=${{ steps.validate.outcome }}
+          doctor=${{ steps.doctor.outcome }}
+          preview=${{ steps.preview.outcome }}
+          verify=${{ steps.verify.outcome }}
+          EOF
+
+      - name: Upload retained native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: anodizer-ota-${{ matrix.os }}
+          path: ota-pressure/native/
+          if-no-files-found: error
+
+      - name: Preserve truthful native failure
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.node.outcome }}" = success
+          test "${{ steps.toolchain.outcome }}" = success
+          test "${{ steps.wix.outcome }}" = success || test "${{ steps.wix.outcome }}" = skipped
+          test "${{ steps.ota.outcome }}" = success
+          test "${{ steps.posture.outcome }}" = success
+          test "${{ steps.validate.outcome }}" = success
+          test "${{ steps.doctor.outcome }}" = success
+          test "${{ steps.preview.outcome }}" = success
+          test "${{ steps.verify.outcome }}" = success
+
+  container:
+    name: Ota contract (linux container)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare retained container evidence
+        shell: bash
+        run: mkdir -p ota-pressure/container
+
+      - name: Set up Ota from its contract-owned pressure source
+        id: ota
+        continue-on-error: true
+        uses: ota-run/setup@493cba84bf7f7c11e9e8e996d832d93a89c62184 # v1.0.8
+        with:
+          source: contract
+          contract-path: ota.yaml
+
+      - name: Build the provisioned pressure image
+        id: image
+        continue-on-error: true
+        run: >-
+          docker build --pull --platform linux/amd64 --file .github/ota/Dockerfile
+          --tag anodizer-ota-pressure:1.0 .
+
+      - name: Record container posture
+        id: posture
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          docker version --format '{{json .}}' > ota-pressure/container/docker-version.json
+          docker image inspect anodizer-ota-pressure:1.0 > ota-pressure/container/image.json
+          docker run --rm --platform linux/amd64 anodizer-ota-pressure:1.0 bash -c '
+            rustc --version --verbose
+            cargo --version --verbose
+            node --version
+            task --version
+            cargo nextest --version
+            nfpm --version
+          ' > ota-pressure/container/toolchain-versions.txt
+
+      - name: Preview the selected container graph
+        id: preview
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota up --workflow verify --container --agent --dry-run . --json > ota-pressure/container/up-dry-run.json
+
+      - name: Run bounded container verification
+        id: verify
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          before_lock="$(git hash-object Cargo.lock)"
+          ota run verify --container --agent --stream . 2>&1 | tee ota-pressure/container/verify.txt
+          test "$(git hash-object Cargo.lock)" = "$before_lock"
+          git diff --exit-code -- Cargo.lock
+          git diff --exit-code
+
+      - name: Record exact container outcomes
+        if: always()
+        shell: bash
+        run: |
+          cat > ota-pressure/container/outcomes.txt <<EOF
+          revision=${GITHUB_SHA}
+          ota=${{ steps.ota.outcome }}
+          image=${{ steps.image.outcome }}
+          posture=${{ steps.posture.outcome }}
+          preview=${{ steps.preview.outcome }}
+          verify=${{ steps.verify.outcome }}
+          EOF
+
+      - name: Upload retained container evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: anodizer-ota-container
+          path: ota-pressure/container/
+          if-no-files-found: error
+
+      - name: Preserve truthful container failure
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.ota.outcome }}" = success
+          test "${{ steps.image.outcome }}" = success
+          test "${{ steps.posture.outcome }}" = success
+          test "${{ steps.preview.outcome }}" = success
+          test "${{ steps.verify.outcome }}" = success
