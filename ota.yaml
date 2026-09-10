@@ -21,6 +21,9 @@ execution:
       lifecycle: ephemeral
       env:
         CARGO_HOME: /workspace/.ota/cache/cargo-container
+        # Taskfile.yml disables ANSI only when GITHUB_ACTIONS is present; the
+        # isolated container deliberately does not inherit that host marker.
+        ANODIZER_COLOR: never
       container:
         image: anodizer-ota-pressure:1.0
         platform: linux/amd64

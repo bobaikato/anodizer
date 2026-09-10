@@ -9,6 +9,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Ota executes the ephemeral container as the GitHub runner UID. SSH tooling
+# requires that UID to resolve through passwd rather than treating it as an
+# anonymous process identity.
+RUN groupadd --gid 1001 anodizer \
+    && useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash anodizer
+
 RUN set -eux; \
     curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz"; \
     curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_checksums.txt"; \
