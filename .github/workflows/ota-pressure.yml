@@ -20,13 +20,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Compare contract-owned verification with repository CI
+        id: drift
+        continue-on-error: true
         uses: ota-run/action@6bb5bf686df5a8385202c8c20b6f91c045e3c161 # v1.0.15
         with:
           command: doctor
           source: contract
           fail-on-error: false
-          fail-on-ci-drift: false
+          fail-on-ci-drift: true
           comment-pr: false
+
+      - name: Preserve truthful contract-to-CI drift outcome
+        if: always()
+        shell: bash
+        run: test "${{ steps.drift.outcome }}" = success
 
   native:
     name: Ota contract (${{ matrix.os }})
@@ -114,6 +121,13 @@ jobs:
         run: ota up --workflow verify --native --agent --dry-run . --json > ota-pressure/native/up-dry-run.json
 
       - name: Run bounded native verification
+        id: check
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota run check --native --agent --stream . 2>&1 | tee ota-pressure/native/check.txt
+
+      - name: Run bounded native CI verification
         id: verify
         if: always()
         continue-on-error: true
@@ -140,6 +154,7 @@ jobs:
           validate=${{ steps.validate.outcome }}
           doctor=${{ steps.doctor.outcome }}
           preview=${{ steps.preview.outcome }}
+          check=${{ steps.check.outcome }}
           verify=${{ steps.verify.outcome }}
           EOF
 
@@ -163,6 +178,7 @@ jobs:
           test "${{ steps.validate.outcome }}" = success
           test "${{ steps.doctor.outcome }}" = success
           test "${{ steps.preview.outcome }}" = success
+          test "${{ steps.check.outcome }}" = success
           test "${{ steps.verify.outcome }}" = success
 
   container:
@@ -216,7 +232,14 @@ jobs:
         shell: bash
         run: ota up --workflow verify --container --agent --dry-run . --json > ota-pressure/container/up-dry-run.json
 
-      - name: Run bounded container verification
+      - name: Run bounded container type check
+        id: check
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: ota run check --container --agent --stream . 2>&1 | tee ota-pressure/container/check.txt
+
+      - name: Run bounded container CI verification
         id: verify
         if: always()
         continue-on-error: true
@@ -238,6 +261,7 @@ jobs:
           image=${{ steps.image.outcome }}
           posture=${{ steps.posture.outcome }}
           preview=${{ steps.preview.outcome }}
+          check=${{ steps.check.outcome }}
           verify=${{ steps.verify.outcome }}
           EOF
 
@@ -257,4 +281,5 @@ jobs:
           test "${{ steps.image.outcome }}" = success
           test "${{ steps.posture.outcome }}" = success
           test "${{ steps.preview.outcome }}" = success
+          test "${{ steps.check.outcome }}" = success
           test "${{ steps.verify.outcome }}" = success

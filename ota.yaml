@@ -122,14 +122,13 @@ tasks:
   verify:
     description: Run the bounded cross-platform contributor verification slice
     notes: |
-      Success covers locked hydration, Anodizer's two-pass Cargo check, nextest suite, and
-      doctests in the selected environment. It does not prove release construction, artifact
-      determinism, signing, OIDC publication, registry propagation, rollback, recovery, or
-      repository-wide release readiness.
+      This is the repository CI-owned test gate. The pressure workflow separately records the
+      bounded type-check task before this gate. Neither result proves release construction,
+      artifact determinism, signing, OIDC publication, registry propagation, rollback, recovery,
+      or repository-wide release readiness.
     category: verify
     aggregate:
       tasks:
-        - check
         - test
     safe_for_agent: true
 
@@ -169,10 +168,10 @@ agent:
     - Taskfile.yml
   bootstrap:
     ota:
-      note: Install the exact active Ota branch only for this unreleased pressure lane.
+      note: Install the exact reviewed unreleased Ota revision only for this pressure lane.
       source:
-        kind: branch
-        branch: 1.6.28-implementation
+        kind: git_rev
+        rev: a8d9f7f610a8bc5b4e94d78b28980140d8d4d017
   notes: |
     Use `ota tasks --safe --use` before selecting work. The default workflow is deliberately
     narrower than Anodizer's release system. Do not infer release, publishing, signing, registry,
