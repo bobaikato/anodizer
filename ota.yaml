@@ -15,7 +15,7 @@ execution:
     host:
       backend: native
       env:
-        CARGO_HOME: ${OTA_HOST_WORKSPACE}/.ota/cache/cargo-native
+        CARGO_HOME: .ota/cache/cargo-native
     pressure-container:
       backend: container
       lifecycle: ephemeral
