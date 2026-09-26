@@ -42,7 +42,8 @@ tools:
   task: "*"
   cargo-nextest: "*"
   nfpm:
-    version: "2.46.3"
+    # CI installs 2.46.3 and records its identity; v1.6.28 misreads nfpm's banner as `0-dependencies`.
+    version: "*"
     only_on: [linux]
 
 tasks:

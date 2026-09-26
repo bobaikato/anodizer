@@ -257,6 +257,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           task: "true"
+          tools: cargo-nextest
           nfpm: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Ota from the contract
