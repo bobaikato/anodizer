@@ -56,3 +56,10 @@ cobertura.xml
 
 # Tool inventory `anodizer mcp tools` writes into the working directory.
 /mcp-tools.json
+
+# Ota local runtime artifacts
+.ota/cache/*
+.ota/state/*
+.ota/contracts/*
+.ota/receipts/*
+.ota/proof/*
