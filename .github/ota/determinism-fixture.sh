@@ -25,6 +25,7 @@ case "$mode" in
     git -C "$fixture" -c user.name='Ota fixture' -c user.email='fixture@invalid.example' \
       -c commit.gpgsign=false commit -q -m 'disposable fixture'
     git -C "$fixture" rev-parse HEAD > "$evidence/fixture-revision.txt"
+    jq --version > "$evidence/jq-version.txt"
     ;;
   preflight)
     test -f "$fixture/.anodizer.yaml"

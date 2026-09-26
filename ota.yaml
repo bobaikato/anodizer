@@ -196,6 +196,9 @@ tasks:
       exe: bash
       args: [.github/ota/determinism-fixture.sh, positive]
     depends_on: [pressure:preflight]
+    requirements:
+      tools:
+        jq: "*"
     effects:
       writes: [.ota/pressure]
     safe_for_agent: false
@@ -207,6 +210,9 @@ tasks:
       exe: bash
       args: [.github/ota/determinism-fixture.sh, negative]
     depends_on: [pressure:determinism]
+    requirements:
+      tools:
+        jq: "*"
     effects:
       writes: [.ota/pressure]
     safe_for_agent: false
