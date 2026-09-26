@@ -25,7 +25,6 @@ case "$mode" in
     git -C "$fixture" -c user.name='Ota fixture' -c user.email='fixture@invalid.example' \
       -c commit.gpgsign=false commit -q -m 'disposable fixture'
     git -C "$fixture" rev-parse HEAD > "$evidence/fixture-revision.txt"
-    jq --version > "$evidence/jq-version.txt"
     ;;
   preflight)
     test -f "$fixture/.anodizer.yaml"
@@ -33,6 +32,7 @@ case "$mode" in
     ;;
   positive)
     test -f "$evidence/preflight.log"
+    jq --version > "$evidence/jq-version.txt"
     (cd "$fixture" && "$anodizer" check determinism --runs 2 --stages build,archive \
       --report "$evidence/positive.json") > "$evidence/positive.log" 2>&1
     jq -e '.runs == 2 and .drift_count == 0' "$evidence/positive.json" > /dev/null
