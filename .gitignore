@@ -63,3 +63,4 @@ cobertura.xml
 .ota/contracts/*
 .ota/receipts/*
 .ota/proof/*
+.ota/pressure/*

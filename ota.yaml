@@ -153,6 +153,70 @@ tasks:
       tasks: [test]
     safe_for_agent: true
 
+  pressure:build-cli:
+    description: Build Anodizer's own CLI for a disposable Linux determinism exercise
+    category: setup
+    command:
+      exe: cargo
+      args: [build, --locked, -p, anodizer, --bin, anodizer]
+    depends_on: [setup:cargo:native]
+    requirements:
+      toolchains: [rust]
+    effects:
+      writes: [target]
+    safe_for_agent: false
+
+  pressure:prepare:
+    description: Create a tiny disposable Rust workspace with a fixed Git revision
+    category: setup
+    command:
+      exe: bash
+      args: [.github/ota/determinism-fixture.sh, prepare]
+    depends_on: [pressure:build-cli]
+    effects:
+      writes: [.ota/pressure]
+    safe_for_agent: false
+
+  pressure:preflight:
+    description: Record Anodizer's configuration preflight for the disposable workspace
+    category: verify
+    command:
+      exe: bash
+      args: [.github/ota/determinism-fixture.sh, preflight]
+    depends_on: [pressure:prepare]
+    effects:
+      writes: [.ota/pressure]
+    safe_for_agent: false
+
+  pressure:determinism:
+    description: Require two builds of the disposable workspace to compare byte-for-byte
+    category: verify
+    command:
+      exe: bash
+      args: [.github/ota/determinism-fixture.sh, positive]
+    depends_on: [pressure:preflight]
+    effects:
+      writes: [.ota/pressure]
+    safe_for_agent: false
+
+  pressure:controlled-failure:
+    description: Require Anodizer to detect an injected archive-byte drift
+    category: verify
+    command:
+      exe: bash
+      args: [.github/ota/determinism-fixture.sh, negative]
+    depends_on: [pressure:determinism]
+    effects:
+      writes: [.ota/pressure]
+    safe_for_agent: false
+
+  pressure:verify:
+    description: Retain separate preflight, reproducibility, and controlled-drift results
+    category: verify
+    aggregate:
+      tasks: [pressure:controlled-failure]
+    safe_for_agent: false
+
 workflows:
   default: verify
   verify:
@@ -167,6 +231,15 @@ workflows:
       architectures and is the native Linux/x86_64 proof for that lane. Ota selects and records
       the bounded path; repository CI remains the owner of platform-specific test prerequisites
       and every unselected release-system lane.
+  pressure:
+    intent: ci_validation
+    description: Exercise Anodizer's CLI on one disposable Linux Rust workspace
+    run:
+      task: pressure:verify
+    notes: |
+      This separately records config preflight, a positive two-build byte comparison, and
+      deliberate archive drift detection. It is test-harness evidence, not the upstream
+      release determinism matrix or proof of publication, signing, rollback, or recovery.
 
 agent:
   posture: readiness_strict

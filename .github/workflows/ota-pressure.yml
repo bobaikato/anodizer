@@ -13,7 +13,6 @@ jobs:
   contract-ci-drift:
     name: Contract-to-CI drift
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +34,6 @@ jobs:
   native:
     name: Ota contributor path (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -162,7 +160,6 @@ jobs:
   container:
     name: Ota contributor path (Linux container)
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -249,3 +246,37 @@ jobs:
           test "${{ steps.preview.outcome }}" = success
           test "${{ steps.check.outcome }}" = success
           test "${{ steps.verify.outcome }}" = success
+
+  disposable-determinism:
+    name: Ota disposable preflight and drift boundaries (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Rust and test tooling
+        uses: ./.github/actions/setup-rust
+        with:
+          task: "true"
+          nfpm: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Ota from the contract
+        uses: ota-run/setup@493cba84bf7f7c11c9e8e996d832d93a89c62184 # v1.0.8
+        with:
+          source: contract
+          contract-path: ota.yaml
+      - name: Preview disposable task graph
+        shell: bash
+        run: ota run pressure:verify --native --dry-run --json . > pressure-preview.json
+      - name: Exercise preflight, two builds, and controlled drift
+        shell: bash
+        run: ota run pressure:verify --native --stream .
+      - name: Retain separate outcomes
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: anodizer-ota-disposable-determinism
+          path: |
+            pressure-preview.json
+            .ota/pressure/evidence/
+          include-hidden-files: true
+          if-no-files-found: error
