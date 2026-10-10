@@ -1,16 +1,17 @@
 use super::*;
 #[cfg(unix)]
-use anodizer_core::artifact::{Artifact, ArtifactKind};
+use anodizer_core::artifact::Artifact;
+use anodizer_core::artifact::ArtifactKind;
 #[cfg(unix)]
 use anodizer_core::config::SbomConfig;
 #[cfg(unix)]
 use anodizer_core::context::Context;
 #[cfg(unix)]
 use anodizer_core::stage::Stage;
-#[cfg(unix)]
 use anodizer_core::test_helpers::TestContextBuilder;
+use std::path::Path;
 #[cfg(unix)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Regression:
 /// when `documents:` contains a glob pattern that matches multiple
@@ -179,7 +180,6 @@ fn sbom_metadata_timestamp_varies_with_sde() {
 
 #[cfg(unix)]
 use anodizer_core::test_helpers::fake_tool::FakeToolDir;
-#[cfg(unix)]
 use std::collections::HashMap;
 
 /// Build a `Context` with `dist` set to a fresh tempdir and a single SBOM

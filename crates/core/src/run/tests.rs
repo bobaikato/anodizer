@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 use super::exec::*;
 use super::process_tree::*;
-use crate::log::{LogLevel, StageLogger, Verbosity};
+#[cfg(unix)]
+use crate::log::LogLevel;
+use crate::log::{StageLogger, Verbosity};
 
 /// `sh -c` wrapper so the tests run a portable shell snippet.
 #[cfg(unix)]
