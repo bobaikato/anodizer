@@ -3,6 +3,8 @@ use anodizer_core::config::SignConfig;
 use anodizer_core::stage::Stage;
 use anodizer_core::test_helpers::TestContextBuilder;
 
+#[cfg(unix)]
+use super::BinarySignStage;
 use super::helpers::{
     collapse_doubled_digest, pin_image_ref_to_digest, prepare_stdin_from, resolve_sign_args,
     resolve_signature_path, should_sign_artifact,
@@ -11,7 +13,7 @@ use super::process::{
     ArtifactFilter, COSIGN_CONSENT_ENV, KEYLESS_COSIGN_HARNESS_SKIP, ensure_cosign_consent_env,
     process_sign_configs,
 };
-use super::{BinarySignStage, DockerSignStage, SignStage};
+use super::{DockerSignStage, SignStage};
 
 /// Readability alias for the kind-filter predicate at call sites.
 fn should_sign(kind: ArtifactKind, filter: &str) -> anyhow::Result<bool> {
@@ -4819,6 +4821,7 @@ mod authenticode {
     use anodizer_core::config::AuthenticodeConfig;
     use anodizer_core::log::LogCapture;
     use std::collections::HashMap;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     use crate::helpers::{

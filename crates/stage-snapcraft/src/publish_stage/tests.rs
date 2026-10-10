@@ -47,6 +47,7 @@ fn snap_artifact(crate_name: &str) -> anodizer_core::artifact::Artifact {
 /// runs inside, and the snap version tracks that repository's latest tag
 /// instead of the version the fixture set. Anchoring at a tagless directory
 /// leaves the context version as the only reachable answer.
+#[cfg(unix)]
 fn tagless_project_root() -> (tempfile::TempDir, anodizer_core::context::ContextOptions) {
     let dir = tempfile::tempdir().expect("tempdir");
     let options = anodizer_core::context::ContextOptions {

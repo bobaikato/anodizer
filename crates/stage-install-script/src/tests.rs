@@ -1034,6 +1034,7 @@ fn linux_amd64_asset(script: &str) -> String {
 
 /// Read `key`'s baked `ARCHIVE=` value out of a rendered script, with the
 /// install-time `${version}` expansion already resolved.
+#[cfg(unix)]
 fn arm_asset(script: &str, key: &str) -> String {
     let arm = script
         .split(&format!("{key})"))
@@ -1177,6 +1178,7 @@ fn write_tagged_tarball(release: &Path, asset: &str, marker: &str) {
     assert!(status.success(), "failed to build fixture archive");
 }
 
+#[cfg(unix)]
 fn build_release_tarball(release: &Path, asset: &str, binaries: &[&str]) {
     use std::process::Command;
     let payload = release.join("payload");

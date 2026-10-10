@@ -1059,6 +1059,7 @@ Rev    Uploaded              Arches  Version  Channels
     /// Clears `SNAPCRAFT_STORE_CREDENTIALS` for the guard's lifetime so a
     /// preflight test exercises the `snapcraft whoami` probe, which only runs
     /// when the credential env var is absent.
+    #[cfg(unix)]
     fn creds_cleared() -> anodizer_core::test_helpers::env::EnvGuard {
         anodizer_core::test_helpers::env::EnvGuard::remove("SNAPCRAFT_STORE_CREDENTIALS")
     }

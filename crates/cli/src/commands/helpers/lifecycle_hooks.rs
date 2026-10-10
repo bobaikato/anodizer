@@ -162,6 +162,7 @@ pub(crate) fn finish_with_always_hooks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use anodizer_core::config::{HookEntry, HooksConfig, StructuredHook};
     use anodizer_core::context::ContextOptions;
     use anodizer_core::log::Verbosity;
