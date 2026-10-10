@@ -440,6 +440,7 @@ mod tests {
             ("commit.gpgsign", "false"),
             ("tag.gpgsign", "false"),
             ("core.hooksPath", ".git/hooks"),
+            ("init.defaultBranch", "master"),
         ] {
             let mut cmd = Command::new("git"); // spawn-retry-ok: the uninsulated production spawn shape is the subject
             cmd.args(["config", "--get", key])

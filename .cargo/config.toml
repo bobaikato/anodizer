@@ -9,13 +9,19 @@ xtask = "run --package xtask --"
 # the commands they spawn themselves. On a host whose global config signs,
 # those commits ran the host's gpg, 89 times per stage-publish run.
 [env]
-GIT_CONFIG_COUNT = "3"
-GIT_CONFIG_KEY_0 = "commit.gpgsign"
-GIT_CONFIG_VALUE_0 = "false"
-GIT_CONFIG_KEY_1 = "tag.gpgsign"
-GIT_CONFIG_VALUE_1 = "false"
-GIT_CONFIG_KEY_2 = "core.hooksPath"
-GIT_CONFIG_VALUE_2 = ".git/hooks"
+# `force` because the CI workflows already export GIT_CONFIG_COUNT=1 with
+# init.defaultBranch (for actions/checkout's own git); without it cargo keeps
+# the caller's COUNT and the entries below are never read. The caller's one
+# key is restated here so nothing is lost.
+GIT_CONFIG_COUNT = { value = "4", force = true }
+GIT_CONFIG_KEY_0 = { value = "commit.gpgsign", force = true }
+GIT_CONFIG_VALUE_0 = { value = "false", force = true }
+GIT_CONFIG_KEY_1 = { value = "tag.gpgsign", force = true }
+GIT_CONFIG_VALUE_1 = { value = "false", force = true }
+GIT_CONFIG_KEY_2 = { value = "core.hooksPath", force = true }
+GIT_CONFIG_VALUE_2 = { value = ".git/hooks", force = true }
+GIT_CONFIG_KEY_3 = { value = "init.defaultBranch", force = true }
+GIT_CONFIG_VALUE_3 = { value = "master", force = true }
 
 # Windows MSVC determinism. MSVC-only flags (`link-arg=/...`) must be
 # scoped per-target — `[build] rustflags` would forward them to lld /
