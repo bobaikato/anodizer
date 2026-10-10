@@ -5152,7 +5152,9 @@ fn per_target_bodies(trigger: &str) -> Vec<(String, String)> {
             let flat: String = body.chars().filter(|c| !c.is_whitespace()).collect();
             if flat.contains(trigger) {
                 let name = body.lines().next().unwrap_or_default().trim().to_string();
-                found.push((format!("{}: {name}", source.display()), flat));
+                // Allow-lists in this file spell paths with `/`; Windows displays `\`.
+                let path = source.display().to_string().replace('\\', "/");
+                found.push((format!("{path}: {name}"), flat));
             }
         }
     }

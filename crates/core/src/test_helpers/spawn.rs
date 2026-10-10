@@ -498,10 +498,14 @@ mod tests {
             let Some(origin) = line.strip_prefix("file:") else {
                 continue;
             };
+            // git C-quotes an origin holding unusual characters (`RUNNER~1`
+            // on the Windows runners): surrounding quotes, backslashes doubled.
             let origin = origin
                 .split('\t')
                 .next()
                 .unwrap_or(origin)
+                .trim_matches('"')
+                .replace("\\\\", "\\")
                 .replace('\\', "/");
             let allowed = origin.starts_with(&fixture)
                 || (cfg!(windows) && origin.to_ascii_lowercase().contains("/etc/gitconfig"));

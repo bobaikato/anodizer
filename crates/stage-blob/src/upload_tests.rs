@@ -373,7 +373,10 @@ fn files_under(dir: &std::path::Path) -> Vec<(String, u64)> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
-        let meta = entry.metadata().unwrap();
+        // Not `entry.metadata()`: on Windows the directory listing's size of a
+        // file still held open for writing (the staged part) stays 0 until the
+        // handle closes; a query by path opens the file and reads the live size.
+        let meta = std::fs::metadata(entry.path()).unwrap();
         if meta.is_dir() {
             out.extend(files_under(&entry.path()));
         } else {
