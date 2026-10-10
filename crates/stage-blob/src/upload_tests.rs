@@ -73,8 +73,10 @@ pub(crate) struct Faults {
     /// The object is replaced with these bytes just before the ranged read
     /// with this index.
     pub swap_before_range: Option<(usize, Vec<u8>)>,
-    /// How long each part takes, so parts overlap.
-    pub part_delay: Duration,
+    /// Each part is held until this many parts have been in flight at once
+    /// (or five seconds pass), so the overlap the uploader allows is measured
+    /// rather than raced against the reader on a loaded host.
+    pub part_hold_until_in_flight: Option<usize>,
     /// Open multipart uploads without their attributes, for an inner store
     /// that refuses them (`LocalFileSystem`).
     pub drop_multipart_attributes: bool,
@@ -270,12 +272,19 @@ impl MultipartUpload for ProbeUpload {
             .map(|(_, fault)| fault);
         let upload = self.inner.put_part(data);
         let seen = Arc::clone(&self.seen);
-        let delay = self.faults.part_delay;
+        let hold = self.faults.part_hold_until_in_flight;
         let location = self.location.clone();
         Box::pin(async move {
             let now = seen.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
             seen.max_in_flight.fetch_max(now, Ordering::SeqCst);
-            tokio::time::sleep(delay).await;
+            if let Some(wanted) = hold {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+                while seen.max_in_flight.load(Ordering::SeqCst) < wanted
+                    && tokio::time::Instant::now() < deadline
+                {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
             let result = match fault {
                 Some(fault) => Err(fault.error(&location)),
                 None => upload.await,
@@ -1189,7 +1198,7 @@ fn a_file_several_parts_long_is_never_handed_to_the_store_whole() {
     std::fs::write(&file, &content).unwrap();
 
     let (store, seen) = Probe::in_memory(Faults {
-        part_delay: Duration::from_millis(30),
+        part_hold_until_in_flight: Some(UPLOAD_PART_CONCURRENCY),
         ..Default::default()
     });
     let config = BlobConfig {
