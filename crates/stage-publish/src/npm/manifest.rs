@@ -52,22 +52,15 @@ pub(crate) struct NpmTriple {
 }
 
 impl NpmTriple {
-    /// The per-platform naming template variables for one built target:
-    /// anodizer's `Os`/`Arch` mapping (from a single
-    /// [`anodizer_core::target::map_target`] call), the raw `Target` triple,
-    /// and the npm selector vars (`NpmOs`/`NpmCpu`/`NpmLibc`) from this
-    /// triple. Lives beside [`npm_triple`] so the target→npm naming authority
-    /// is single-sourced; `platform_name_template` rendering consumes these
-    /// pairs verbatim.
-    pub(crate) fn name_template_vars(&self, target: &str) -> Vec<(&'static str, String)> {
-        let (os, arch) = anodizer_core::target::map_target(target);
-        vec![
-            ("Os", os),
-            ("Arch", arch),
-            ("Target", target.to_string()),
-            ("NpmOs", self.os.clone()),
-            ("NpmCpu", self.cpu.clone()),
-            ("NpmLibc", self.libc.clone()),
+    /// The npm selector variables (`NpmOs` / `NpmCpu` / `NpmLibc`) a
+    /// `platform_name_template` reads beside the per-target scope. Lives
+    /// beside [`npm_triple`] so the target→npm naming authority is
+    /// single-sourced.
+    pub(crate) fn name_template_vars(&self) -> [(&'static str, &str); 3] {
+        [
+            ("NpmOs", &self.os),
+            ("NpmCpu", &self.cpu),
+            ("NpmLibc", &self.libc),
         ]
     }
 }
@@ -382,7 +375,13 @@ fn resolve_artifact_url(
     os: &str,
 ) -> String {
     if let Some(tmpl) = url_template {
-        return util::render_url_template_with_ctx(ctx, tmpl, pkg_name, version, arch, os);
+        return util::render_url_template_with_ctx(
+            ctx,
+            tmpl,
+            pkg_name,
+            version,
+            util::UrlTarget::of(art, os, arch),
+        );
     }
     art.metadata
         .get("url")
@@ -408,7 +407,7 @@ pub(crate) fn insert_common_metadata(
 ) {
     let render = |s: &str| ctx.render_template(s).unwrap_or_else(|_| s.to_string());
 
-    let description = cfg.description.as_deref().map(&render).or_else(|| {
+    let description = cfg.description.as_deref().map(render).or_else(|| {
         ctx.config
             .meta_description_for(crate_name)
             .map(str::to_string)
@@ -420,7 +419,7 @@ pub(crate) fn insert_common_metadata(
     let homepage = cfg
         .homepage
         .as_deref()
-        .map(&render)
+        .map(render)
         .or_else(|| ctx.config.meta_homepage_for(crate_name).map(str::to_string));
     if let Some(h) = homepage {
         root.insert("homepage".into(), serde_json::Value::String(h));
@@ -429,7 +428,7 @@ pub(crate) fn insert_common_metadata(
     let license = cfg
         .license
         .as_deref()
-        .map(&render)
+        .map(render)
         .or_else(|| ctx.config.meta_license_for(crate_name).map(str::to_string));
     if let Some(l) = license {
         root.insert("license".into(), serde_json::Value::String(l));
@@ -438,7 +437,7 @@ pub(crate) fn insert_common_metadata(
     // Honour the documented `author` fallback: explicit config, else the
     // project's `metadata.maintainers[0]`, else the crate's
     // `Cargo.toml [package].authors[0]` (both via `meta_first_maintainer_for`).
-    let author = cfg.author.as_deref().map(&render).or_else(|| {
+    let author = cfg.author.as_deref().map(render).or_else(|| {
         ctx.config
             .meta_first_maintainer_for(crate_name)
             .map(str::to_string)
@@ -464,7 +463,7 @@ pub(crate) fn insert_common_metadata(
     // OIDC-claimed repository. Fall back to the crate's
     // `Cargo.toml [package].repository` so the field is correct by default and
     // never requires the operator to restate it in the publisher config.
-    let repository = cfg.repository_url.as_deref().map(&render).or_else(|| {
+    let repository = cfg.repository_url.as_deref().map(render).or_else(|| {
         ctx.config
             .meta_repository_for(crate_name)
             .map(str::to_string)

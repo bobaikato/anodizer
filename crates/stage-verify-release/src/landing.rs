@@ -104,7 +104,7 @@ pub type DockerManifestProbe<'a> = dyn Fn(&str) -> anyhow::Result<Option<String>
 /// ([`starting_now`](Self::starting_now)) and every probe shares the resulting
 /// absolute [`sweep_deadline`](Self::sweep_deadline), so a registry that never
 /// serves anything costs one window in total instead of one per target — a
-/// 43-target release would otherwise spend over an hour inside a 20-minute
+/// 43-target release would otherwise spend over an hour inside a 35-minute
 /// job.
 #[derive(Debug, Clone, Copy)]
 pub struct PropagationRetry {
@@ -119,15 +119,25 @@ pub struct PropagationRetry {
 }
 
 impl PropagationRetry {
-    /// 5s base doubling to a 30s cap over 8 attempts inside a 3-minute window
-    /// (5+10+20+30×4 = 155s of backoff).
+    /// 5s base doubling to a 30s cap inside a 12-minute window, with enough
+    /// attempts that the deadline is what ends the ladder.
+    ///
+    /// 33 attempts are 32 sleeps: 5 + 10 + 20 + 30×29 = 905s of backoff. Each
+    /// sleep is jittered by ±20%, so the shortest the same ladder can run is
+    /// 0.8 × 905 = 724s, which is still past the 720s window. At 28 attempts
+    /// the shortest ladder was 0.8 × 755 = 604s and the attempts could run
+    /// out with almost two minutes of the window unused.
+    ///
+    /// npm has been observed to serve a package about ten minutes after
+    /// `npm publish` returned (`@tj-smith47/anodizer-win32-arm64@0.28.1` on a
+    /// nine-package release), so the window is sized past that.
     pub const DEFAULT: PropagationRetry = PropagationRetry {
         policy: anodizer_core::retry::RetryPolicy {
-            max_attempts: 8,
+            max_attempts: 33,
             base_delay: std::time::Duration::from_secs(5),
             max_delay: std::time::Duration::from_secs(30),
         },
-        budget: std::time::Duration::from_secs(180),
+        budget: std::time::Duration::from_secs(720),
         sweep_deadline: None,
     };
 
@@ -1036,6 +1046,7 @@ mod tests {
                     key: k.to_string(),
                     region: None,
                     endpoint: None,
+                    overwrote: false,
                 })
                 .collect(),
         })
@@ -2065,6 +2076,21 @@ mod tests {
         assert!(issues.is_empty());
     }
 
+    /// The attempt count never ends the default ladder before its window
+    /// closes, even when every sleep draws the shortest jitter.
+    #[test]
+    fn the_default_ladder_outlasts_its_window_at_the_shortest_jitter() {
+        let retry = PropagationRetry::DEFAULT;
+        let shortest: std::time::Duration = (2..=retry.policy.max_attempts)
+            .map(|attempt| retry.policy.delay_for(attempt).mul_f64(0.8))
+            .sum();
+        assert!(
+            shortest >= retry.budget,
+            "{shortest:?} of backoff at -20% jitter against a {:?} window",
+            retry.budget
+        );
+    }
+
     #[test]
     fn the_propagation_window_never_outlives_the_run_deadline() {
         use std::time::{Duration, Instant};
@@ -2072,9 +2098,9 @@ mod tests {
 
         let anchored = Instant::now();
         let open = retry.starting_now(None).sweep_deadline.expect("anchored");
-        assert!(open >= anchored + Duration::from_secs(179), "{open:?}");
+        assert!(open >= anchored + Duration::from_secs(719), "{open:?}");
         assert!(
-            open <= Instant::now() + Duration::from_secs(180),
+            open <= Instant::now() + Duration::from_secs(720),
             "{open:?}"
         );
 

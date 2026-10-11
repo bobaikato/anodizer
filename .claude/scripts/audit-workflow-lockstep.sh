@@ -46,6 +46,14 @@
 #      included), so the second post step finds no `cargo` for its `cargo
 #      metadata` and saves a cache it could not scope. The job still passes,
 #      so nothing else notices.
+#  11. Dispatch wait window: release.yml's dispatch-oidc job polls
+#      publish-oidc.yml to a verdict, so its timeout-minutes is at least the
+#      longest publish-oidc.yml job timeout plus OIDC_WAIT_MARGIN minutes for
+#      the dispatched run's queue time, the run correlation and its teardown.
+#      A waiter that times out first fails a release whose publish succeeds.
+#      Every publish-oidc.yml job must declare timeout-minutes: a job without
+#      one runs under GitHub's 360-minute default, which no waiter covers, and
+#      reading it as 0 would let the check pass on exactly that job.
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
@@ -163,10 +171,27 @@ else
     for f in "$CI" "$REL" "$OIDC"; do
         while IFS= read -r val; do
             [[ -z "$val" ]] && continue
-            # A GHA expression (e.g. the resolve output) is not a literal name.
+            # A GHA expression (e.g. the resolve output) is not a literal
+            # name, but a quoted literal in VALUE position inside it — the
+            # operand right after a `&&` or `||` — is what the expression
+            # can evaluate to, so every non-empty one must be the producer's
+            # name. A literal used as a comparison operand
+            # (`inputs.publish_version == 'latest'`) names nothing the
+            # action downloads and is not checked.
             # shellcheck disable=SC2016  # the literal ${{ is the match target, not an expansion
             case "$val" in
-                *'${{'*) continue ;;
+                *'${{'*)
+                    rest="$val"
+                    while [[ "$rest" =~ (\&\&|\|\|)[[:space:]]*\'([^\']*)\'(.*)$ ]]; do
+                        lit="${BASH_REMATCH[2]}"
+                        rest="${BASH_REMATCH[3]}"
+                        [[ -z "$lit" ]] && continue
+                        if [[ "$lit" != "$producer" ]]; then
+                            fail "bootstrap artifact drift: literal '${lit}' inside from-artifact expression in ${f} != producer '${producer}'."
+                        fi
+                    done
+                    continue
+                    ;;
             esac
             if [[ "$val" != "$producer" ]]; then
                 fail "bootstrap artifact drift: literal from-artifact '${val}' in ${f} != producer '${producer}'."
@@ -337,6 +362,18 @@ for wf in .github/workflows/*.yml; do
     done < <(yqr -r '.jobs | keys[]' "$wf")
 done
 
+# --- 11. Dispatch wait window ----------------------------------------------
+OIDC_WAIT_MARGIN=15
+wait_timeout=$(yqr -r '.jobs["dispatch-oidc"]["timeout-minutes"] // 0' "$REL")
+while IFS= read -r job; do
+    [[ -n "$job" ]] || continue
+    fail "dispatch wait window: ${OIDC} job '${job}' declares no timeout-minutes, so it runs under GitHub's 360-minute default and no waiter in ${REL} covers it. Declare one."
+done < <(yqr -r '.jobs | to_entries[] | select(.value["timeout-minutes"] == null) | .key' "$OIDC")
+waited_timeout=$(yqr -r '[.jobs[]["timeout-minutes"] // 0] | max' "$OIDC")
+if (( wait_timeout < waited_timeout + OIDC_WAIT_MARGIN )); then
+    fail "dispatch wait window: ${REL} job 'dispatch-oidc' has timeout-minutes ${wait_timeout}, below ${OIDC}'s longest job timeout (${waited_timeout}) plus the ${OIDC_WAIT_MARGIN}-minute margin — the waiter would time out before the publish it waits on."
+fi
+
 if [[ -n "$failures" ]]; then
     echo "audit-workflow-lockstep: FAIL — hand-synced workflow copies have drifted." >&2
     echo "" >&2
@@ -344,4 +381,4 @@ if [[ -n "$failures" ]]; then
     exit 1
 fi
 
-echo "audit-workflow-lockstep: OK — shard roster, secret env, trigger gate, CI bootstrap gate, release/nightly mutex, bootstrap artifact (name + workflow file), atomic tag topology, cross-OS suite fallback, skip_publishers prose, the tokenless OIDC job, and one rust-cache per job are in lockstep."
+echo "audit-workflow-lockstep: OK — shard roster, secret env, trigger gate, CI bootstrap gate, release/nightly mutex, bootstrap artifact (name + workflow file), atomic tag topology, cross-OS suite fallback, skip_publishers prose, the tokenless OIDC job, one rust-cache per job, and the dispatch wait window are in lockstep."

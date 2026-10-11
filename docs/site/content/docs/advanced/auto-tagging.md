@@ -191,9 +191,14 @@ in this order (highest precedence first):
 | # | Signal | Beats | Notes |
 |---|--------|-------|-------|
 | 1 | Explicit token `#major` > `#minor` > `#patch` | everything | Literal operator intent — never lowered by the pre-1.0 demotion below. |
-| 2 | Conventional marker — `feat!`/`BREAKING CHANGE` → major, `feat` → minor, `fix`/`perf`/`revert` → patch | `#none`, `default_bump` | A release-worthy marker overrides `#none`. `chore`/`docs`/`style`/`refactor`/`test`/`build`/`ci` are not release-worthy and contribute nothing. |
-| 3 | `#none` | `default_bump` | Vetoes the fallback only — a range whose sole signal is `#none` skips. |
+| 2 | `#none` | conventional marker, `default_bump` | Operator intent too: anywhere in the range it holds every inferred bump, so commits can be pushed without releasing. Only an explicit token outranks it. |
+| 3 | Conventional marker — `feat!`/`BREAKING CHANGE` → major, `feat` → minor, `fix`/`perf`/`revert` → patch | `default_bump` | `chore`/`docs`/`style`/`refactor`/`test`/`build`/`ci` are not release-worthy and contribute nothing. |
 | 4 | `default_bump` | — | Used when nothing above matched. Default `none`. |
+
+Tokens are read from commit subjects only, as whole words. A subject that
+merely mentions `#none` — a commit that changes how the marker is handled, say —
+vetoes the range all the same; release it by putting `#minor` (or `#patch`) in
+the subject of a later commit, which outranks the veto.
 
 With `default_bump: none` (the default) a range of only chore/docs/ci commits
 produces **no** release — the conventional-commit contract. Set

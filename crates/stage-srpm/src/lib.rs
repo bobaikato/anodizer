@@ -251,10 +251,10 @@ impl Stage for SrpmStage {
         };
 
         if dry_run {
-            log.status(&format!(
+            log.status(&log.redact(&format!(
                 "(dry-run) would create source RPM {}",
                 package_filename
-            ));
+            )));
             return Ok(());
         }
 
@@ -265,7 +265,7 @@ impl Stage for SrpmStage {
         fs::write(&spec_path, &spec_contents)
             .with_context(|| format!("srpm: write spec file {}", spec_path.display()))?;
 
-        log.status(&format!("creating source RPM {}", package_filename));
+        log.status(&log.redact(&format!("creating source RPM {}", package_filename)));
 
         // Build the SRPM using rpmbuild -bs
         let srpm_path = dist.join(&package_filename);
@@ -348,7 +348,8 @@ impl Stage for SrpmStage {
         // Route through the logger so stderr/stdout are passed through
         // env-driven redaction before they reach the error chain. rpmbuild
         // echoes GPG_PASSPHRASE / SRPM_PASSPHRASE on signing failure.
-        log.check_output(output, "rpmbuild -bs")?;
+        log.with_child_env(&rpmbuild_cmd)
+            .check_output(output, "rpmbuild -bs")?;
 
         // Find the generated SRPM in SRPMS/
         let generated: Vec<PathBuf> = glob::glob(&format!("{}/**/*.src.rpm", srpms_dir.display()))

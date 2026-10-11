@@ -625,6 +625,7 @@ fn write_gh_stub(dir: &Path, body: &str) -> std::path::PathBuf {
 
 /// Fixture repo with a GitHub-shaped origin so
 /// `resolve_repo_slug_in` resolves owner/repo without a network.
+#[cfg(unix)]
 fn init_github_origin_repo(dir: &Path) {
     let _ = init_bump_repo(dir, 0);
     run_git(
@@ -647,11 +648,13 @@ fn probe_untouched(_: &str, _: &str) -> Result<bool> {
 /// Moderated-registry probe stub reporting "never submitted", so tests
 /// targeting the crates.io layer (or the summary/release layers)
 /// exercise their subject in isolation.
+#[cfg(unix)]
 fn moderated_probe_clear(_: &str, _: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
 /// Winget sibling of [`moderated_probe_clear`].
+#[cfg(unix)]
 fn winget_probe_clear(_: &WingetProbeSpec) -> Result<Option<String>> {
     Ok(None)
 }
@@ -659,6 +662,7 @@ fn winget_probe_clear(_: &WingetProbeSpec) -> Result<Option<String>> {
 /// npm/pypi immutable-registry probe stub reporting "not published", so
 /// tests targeting other layers (crates.io, summary, release) exercise
 /// their subject in isolation.
+#[cfg(unix)]
 fn immutable_probe_clear(_: &str, _: &str, _: &str) -> Result<bool> {
     Ok(false)
 }
@@ -672,6 +676,7 @@ fn immutable_probe_untouched(_: &str, _: &str, _: &str) -> Result<bool> {
 
 /// Wrap a crates.io index probe into the full [`BurnProbes`] set with
 /// clear npm/pypi + moderated-registry probes.
+#[cfg(unix)]
 fn probes_with_crates_io(index: &(dyn Fn(&str, &str) -> Result<bool> + Sync)) -> BurnProbes<'_> {
     BurnProbes {
         crates_io: index,
@@ -685,6 +690,7 @@ fn probes_with_crates_io(index: &(dyn Fn(&str, &str) -> Result<bool> + Sync)) ->
 /// Wrap an npm + a pypi immutable-registry probe into the full
 /// [`BurnProbes`] set with a clear (never-burned) crates.io probe and
 /// clear moderated-registry probes.
+#[cfg(unix)]
 fn probes_with_npm_pypi<'a>(
     npm: &'a (dyn Fn(&str, &str, &str) -> Result<bool> + Sync),
     pypi: &'a (dyn Fn(&str, &str, &str) -> Result<bool> + Sync),
@@ -701,12 +707,14 @@ fn probes_with_npm_pypi<'a>(
 /// crates.io index probe stub reporting "not published" — used by the
 /// npm/pypi tests so the crates.io layer clears and their subject (the
 /// immutable-registry probe) is exercised in isolation.
+#[cfg(unix)]
 fn crates_io_probe_clear(_: &str, _: &str) -> Result<bool> {
     Ok(false)
 }
 
 /// One crates.io-targeting crate plus a top-level `pypis:`/`npms:` entry
 /// versioned by that crate's tag family, for the npm/pypi burn-probe tests.
+#[cfg(unix)]
 fn config_with_pypi(
     crate_name: &str,
     tag_tmpl: &str,
@@ -717,6 +725,7 @@ fn config_with_pypi(
     config
 }
 
+#[cfg(unix)]
 fn config_with_npm(
     crate_name: &str,
     tag_tmpl: &str,
@@ -727,6 +736,7 @@ fn config_with_npm(
     config
 }
 
+#[cfg(unix)]
 fn single_crate_config(crate_name: &str, tag_tmpl: &str) -> anodizer_core::config::Config {
     let mut config = anodizer_core::config::Config::default();
     config.crates = vec![anodizer_core::config::CrateConfig {
@@ -742,6 +752,7 @@ fn single_crate_config(crate_name: &str, tag_tmpl: &str) -> anodizer_core::confi
 /// Named (rather than inlining `Config::default()` at call sites) so
 /// the six guard tests state the fixture's INTENT — "no cargo crate"
 /// is the property under test, not an incidental default.
+#[cfg(unix)]
 fn no_cargo_config() -> anodizer_core::config::Config {
     anodizer_core::config::Config::default()
 }
@@ -1188,6 +1199,7 @@ fn release_cleanup_retains_tag_when_release_delete_fails() {
 /// rows. The top-level flags are computed the way the producer
 /// computes them (via the public types), so these fixtures cannot
 /// drift from the real writer's shape.
+#[cfg(unix)]
 fn write_summary(
     repo: &Path,
     rel: &str,
@@ -1217,6 +1229,7 @@ fn write_summary(
         .expect("write summary fixture");
 }
 
+#[cfg(unix)]
 fn summary_result(
     name: &str,
     group: anodizer_core::publish_report::PublisherGroup,
@@ -2677,6 +2690,7 @@ fn run_force_bypasses_crates_io_probe() {
 /// publisher. The name matches nothing in the current registry, so the
 /// engine records `RollbackFailed(publisher not found ...)` — the
 /// documented diagnostic, and unambiguous proof the engine ran.
+#[cfg(unix)]
 fn write_run_report(repo: &Path, rel: &str, publisher: &str) {
     let dir = repo.join("dist").join(rel);
     std::fs::create_dir_all(&dir).unwrap();

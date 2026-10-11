@@ -1037,3 +1037,387 @@ fn skip_line_records_status_when_shown() {
     assert_eq!(cap.status_count(), 1);
     assert_eq!(cap.debug_count(), 0);
 }
+
+/// Every production function that spawns a `Command` carrying an env of its
+/// own AND hands that child's output to a logger or an error must log
+/// through [`StageLogger::with_child_env`]: the logger's own table was built
+/// from the process env, so a secret a rendered `env:` plants on the child
+/// reaches the live tee, the failure embed and the `running …` echo unmasked.
+///
+/// Trigger, per function body, after the shared scanner has split the
+/// workspace's production sources into bodies:
+///
+/// - the body sets an env on a `Command`: `.envs(`, `.env_clear(`, or an
+///   `.env(` whose VALUE argument is not a string literal. `::env` (as in
+///   `std::env::var`) is excluded by the character before the dot; `.env.`
+///   and `.env_var(` never match the spellings asked for. A literal value
+///   (`.env("LC_ALL", "C")`, `.env("GIT_TERMINAL_PROMPT", "0")`) is no
+///   secret, and a body that sets only those is outside the class — that
+///   is what keeps the thirty-odd git helpers out of the walk. Known
+///   negative: a literal value that is a secret written in source, which
+///   this workspace does not do and a review catches.
+/// - or the body calls a BUILDER: a function whose signature returns a
+///   `Command` and whose own body sets such an env. The command a builder
+///   hands back carries the env just the same, and a spawner that never
+///   spells `.env(` itself would otherwise be invisible. The builders are
+///   found by the walk and their names pinned.
+/// - and the body reads the child's output somewhere a line can be printed:
+///   any run helper of `crate::run` (`RUN_HELPERS`), `check_output(`,
+///   `.redact(` or a `.stderr)` read (`from_utf8_lossy(&output.stderr)`).
+///   Known positive: a `.stderr)` read that is compared and never printed;
+///   none exists today, and such a body is listed as an exemption rather
+///   than relaxing the trigger.
+///
+/// A body in that population is CONVERTED when it mentions `with_child_env`
+/// AND routes output through something that applies the table: a run
+/// helper, `check_output(` or `.redact(`. Naming the child logger is not
+/// enough — `status`, `verbose`, `warn` and `error` print their message as
+/// given, so `log.with_child_env(&cmd).warn(&stderr)` masks nothing.
+///
+/// A body that is not converted fails, unless it is listed in `EXEMPT` with
+/// the reason it needs no child table: either it has no logger and scrubs
+/// its own error embed, or the only env it sets is a git author identity
+/// read from config.
+#[test]
+fn every_spawn_with_its_own_env_logs_through_the_child_env_redactor() {
+    use crate::test_helpers::test_sources::{
+        function_bodies, production_half, workspace_production_sources,
+    };
+
+    // Functions returning a `Command` that already carries a non-literal env.
+    const BUILDERS: [&str; 5] = [
+        "build_fetch_command",
+        "build_npm_publish_command",
+        "build_subprocess_command",
+        "whitelisted",
+        "whitelisted_with_env",
+    ];
+    // (file suffix, fn name, why no child table is needed)
+    const EXEMPT: [(&str, &str, &str); 8] = [
+        (
+            "core/src/hooks.rs",
+            "run_hooks_inner",
+            "composes a superset table with `with_env(effective_env)` before the Command exists, because the dry-run line needs it",
+        ),
+        (
+            "core/src/git/github_api.rs",
+            "gh_api_get_with_binary_with_env",
+            "no logger; scrubs the token out of its bail! with `redact_gh_stderr_with_env`",
+        ),
+        (
+            "core/src/git/github_api.rs",
+            "gh_api_delete_with_binary",
+            "no logger; scrubs the token out of its bail! with `redact_gh_stderr_with_env`",
+        ),
+        (
+            "core/src/git/github_api.rs",
+            "gh_api_get_paginated_with_binary",
+            "no logger; scrubs the token out of its bail! with `redact_gh_stderr_with_env`",
+        ),
+        (
+            "stage-docker/src/run/manifest.rs",
+            "process_docker_manifest",
+            "the one command it spawns, `manifest rm`, has its output discarded; its `.redact(` is the dry-run echo, masked through `with_job_env`",
+        ),
+        (
+            "stage-publish/src/util/cmd.rs",
+            "run_cmd_in_envs",
+            "no logger; its one env-carrying caller passes a git author identity from config, never a secret",
+        ),
+        (
+            "stage-publish/src/util/git_revert.rs",
+            "revert_commit_in",
+            "no logger; sets only the git author identity from config",
+        ),
+        (
+            "stage-sign/src/verify.rs",
+            "derive_cosign_public_key",
+            "no logger; scrubs its bail! with `redact::string` over the job env plus the process env",
+        ),
+    ];
+
+    let exec = include_str!("../run/exec.rs");
+    let declared: Vec<String> = exec
+        .lines()
+        .filter_map(|l| l.strip_prefix("pub fn "))
+        .map(|rest| {
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            format!("{name}(")
+        })
+        .collect();
+    let mut expected: Vec<String> = RUN_HELPERS.iter().map(|s| s.to_string()).collect();
+    let mut found = declared.clone();
+    expected.sort();
+    found.sort();
+    assert_eq!(
+        found, expected,
+        "RUN_HELPERS must list every pub fn of crate::run's exec API"
+    );
+
+    let mut bodies: Vec<(String, String, String)> = Vec::new();
+    for source in workspace_production_sources() {
+        let text = std::fs::read_to_string(&source).expect("read source");
+        let path = source.to_string_lossy().replace('\\', "/");
+        for body in function_bodies(production_half(&text)) {
+            bodies.push((path.clone(), fn_name(&body), body));
+        }
+    }
+
+    // Transitive: a function that returns the command another builder built
+    // hands on the same env.
+    let mut builders: Vec<&str> = Vec::new();
+    loop {
+        let before = builders.len();
+        for (_, name, body) in &bodies {
+            if !builders.contains(&name.as_str())
+                && returns_a_command(body)
+                && (sets_command_env(body) || builders.iter().any(|b| calls(body, b)))
+            {
+                builders.push(name);
+            }
+        }
+        if builders.len() == before {
+            break;
+        }
+    }
+    builders.sort_unstable();
+    assert_eq!(
+        builders, BUILDERS,
+        "the functions returning a Command that carries its own env moved; \
+         every spawner of one is in this pin's population"
+    );
+
+    let reads_output = |body: &str| {
+        RUN_HELPERS
+            .iter()
+            .chain(&REDACTING)
+            .chain(&[".stderr)"])
+            .any(|s| body.contains(s))
+    };
+    let mut checked = 0usize;
+    let mut converted = 0usize;
+    let mut exempt_seen = Vec::new();
+    let mut offenders = Vec::new();
+    let mut traced = Vec::new();
+    for (path, name, body) in &bodies {
+        let spawns_a_built_command = BUILDERS.iter().any(|b| b != name && calls(body, b));
+        if !(sets_command_env(body) || spawns_a_built_command) || !reads_output(body) {
+            continue;
+        }
+        checked += 1;
+        // A tracing event prints its fields as given: no redaction table
+        // reaches it, so a rendered value in one is printed unmasked.
+        if TRACING_EVENTS.iter().any(|m| body.contains(m))
+            && !TRACING_ALLOWED
+                .iter()
+                .any(|(suffix, fn_name, _)| path.ends_with(suffix) && fn_name == name)
+        {
+            traced.push(format!("{path}: fn {name}"));
+        }
+        if is_converted(body) {
+            converted += 1;
+            continue;
+        }
+        if let Some(entry) = EXEMPT
+            .iter()
+            .find(|(suffix, fn_name, _)| path.ends_with(suffix) && fn_name == name)
+        {
+            exempt_seen.push(*entry);
+            continue;
+        }
+        offenders.push(format!("{path}: fn {name}"));
+    }
+    assert!(
+        offenders.is_empty(),
+        "these functions spawn a Command with its own env and print its output \
+         without routing it through `StageLogger::with_child_env` and a \
+         redacting call (a run helper, `check_output` or `.redact(`):\n{}",
+        offenders.join("\n")
+    );
+    assert!(
+        traced.is_empty(),
+        "these functions spawn a Command with its own env and emit a tracing \
+         event, which no redaction table masks; print through the job or \
+         child logger's `.redact(` instead:\n{}",
+        traced.join("\n")
+    );
+    assert_eq!(
+        exempt_seen.len(),
+        EXEMPT.len(),
+        "every exemption must still name a live site; stale: {:?}",
+        EXEMPT
+            .iter()
+            .filter(|e| !exempt_seen.contains(e))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        checked,
+        converted + EXEMPT.len(),
+        "the population is every converted site plus every exemption"
+    );
+    assert_eq!(
+        converted, 25,
+        "the count of sites logging through with_child_env moved; update \
+         .claude/rules/child-env-redaction.md's population table"
+    );
+}
+
+/// Every `pub fn` of `crate::run`'s exec API; the pin holds the list to the
+/// module's own source.
+const RUN_HELPERS: [&str; 6] = [
+    "run_checked(",
+    "run_checked_with_stdin(",
+    "run_checked_with_stdin_timeout(",
+    "run_checked_timeout(",
+    "run_capture_timeout(",
+    "run_capture(",
+];
+
+/// The tracing event macros, which print their fields with no redaction.
+const TRACING_EVENTS: [&str; 5] = [
+    "tracing::trace!(",
+    "tracing::debug!(",
+    "tracing::info!(",
+    "tracing::warn!(",
+    "tracing::error!(",
+];
+
+/// (file suffix, fn name, why its tracing events carry no rendered value)
+const TRACING_ALLOWED: [(&str, &str, &str); 2] = [
+    (
+        "core/src/hooks.rs",
+        "run_hooks_inner",
+        "its two debug events carry the hook's `cmd:` as written in the config, before any render",
+    ),
+    (
+        "core/src/git/github_api.rs",
+        "gh_api_get_paginated_with_binary",
+        "no logger; its one warn event prints a body snippet scrubbed with `redact_process_env`",
+    ),
+];
+
+/// The logger calls that apply the redaction table to what they are handed.
+const REDACTING: [&str; 2] = ["check_output(", ".redact("];
+
+/// Whether `body` both names the child logger and routes output through
+/// something that applies its table. Naming the logger alone is not enough.
+fn is_converted(body: &str) -> bool {
+    body.contains("with_child_env")
+        && RUN_HELPERS
+            .iter()
+            .chain(&REDACTING)
+            .any(|s| body.contains(s))
+}
+
+/// Whether `body` calls the function `name`, as a whole word.
+fn calls(body: &str, name: &str) -> bool {
+    let needle = format!("{name}(");
+    body.match_indices(&needle).any(|(at, _)| {
+        !body[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
+}
+
+/// Whether the signature of a body the shared scanner produced returns a
+/// `Command`, bare or inside a `Result`.
+fn returns_a_command(body: &str) -> bool {
+    let signature = body.split_once('{').map(|(sig, _)| sig).unwrap_or(body);
+    signature
+        .split_once("->")
+        .is_some_and(|(_, ret)| ret.contains("Command"))
+}
+
+/// A body that names the child logger and only prints through it is not
+/// converted: `warn` prints its message as given.
+#[test]
+fn naming_the_child_logger_without_a_redacting_route_is_not_a_conversion() {
+    assert!(!is_converted(
+        "fn f() { log.with_child_env(&cmd).warn(&String::from_utf8_lossy(&o.stderr)); }"
+    ));
+    assert!(is_converted(
+        "fn f() { let s = log.with_child_env(&cmd).redact(&String::from_utf8_lossy(&o.stderr)); log.warn(&s); }"
+    ));
+    assert!(is_converted(
+        "fn f() { let log = log.with_child_env(&cmd); run_checked_with_stdin(&mut cmd, b, &log, l)?; }"
+    ));
+    assert!(returns_a_command("fn b(a: &str) -> Command {\n    x\n}"));
+    assert!(returns_a_command(
+        "fn b() -> Result<std::process::Command> {\n}"
+    ));
+    assert!(!returns_a_command(
+        "fn b(cmd: &mut Command) -> Result<()> {\n}"
+    ));
+    assert!(calls("let c = whitelisted(&args)?;", "whitelisted"));
+    assert!(!calls("if is_whitelisted(&args) {", "whitelisted"));
+}
+
+/// The first `fn` name in a body the shared scanner produced.
+fn fn_name(body: &str) -> String {
+    let after = body.split_once("fn ").map(|(_, rest)| rest).unwrap_or("");
+    after
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+/// Whether `body` sets an env on a `Command` with a value that is not a
+/// string literal (see the doc comment on the pin above).
+fn sets_command_env(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    let mut from = 0;
+    while let Some(at) = body[from..].find(".env") {
+        let start = from + at;
+        from = start + 4;
+        if start > 0 && bytes[start - 1] == b':' {
+            continue;
+        }
+        let rest = &body[start + 4..];
+        if rest.starts_with("s(") || rest.starts_with("_clear(") {
+            return true;
+        }
+        let Some(args) = rest.strip_prefix('(') else {
+            continue;
+        };
+        // The value is whatever follows the first top-level comma.
+        let mut depth = 0usize;
+        let mut value = None;
+        for (i, c) in args.char_indices() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' if depth == 0 => break,
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    value = Some(args[i + 1..].trim_start());
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if let Some(value) = value
+            && !value.starts_with('"')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+#[test]
+fn the_command_env_trigger_tells_a_literal_value_from_a_variable() {
+    assert!(!sets_command_env(
+        r#"cmd.env("LC_ALL", "C").env("GIT_TERMINAL_PROMPT", "0")"#
+    ));
+    assert!(!sets_command_env("std::env::var(\"X\")"));
+    assert!(!sets_command_env("ctx.env_var(\"X\")"));
+    assert!(!sets_command_env("ctx.env.get(\"X\")"));
+    assert!(sets_command_env("cmd.env(k, v)"));
+    assert!(sets_command_env("cmd.env(\"TOKEN\", &tok)"));
+    assert!(sets_command_env("cmd.env(format!(\"{k}\"), v)"));
+    assert!(sets_command_env("cmd.envs(pairs)"));
+    assert!(sets_command_env("cmd.env_clear()"));
+}

@@ -491,6 +491,60 @@ impl StageLogger {
             .unwrap_or_default()
     }
 
+    /// A sibling logger whose redaction table also holds the env `cmd` will
+    /// be spawned with.
+    ///
+    /// A secret written literally in a job's rendered `env:` reaches the
+    /// child's environment without ever being in the process env, so the
+    /// table this logger carries does not know it. Every path that spawns a
+    /// `Command` carrying its own `env` logs through the logger this returns.
+    /// An entry `cmd` REMOVES (`env_remove`) has no value to mask and is
+    /// skipped.
+    ///
+    /// The table is applied where the logger itself redacts, and nowhere
+    /// else:
+    ///
+    /// - [`StageLogger::redact`];
+    /// - [`StageLogger::check_output`] and
+    ///   [`StageLogger::check_output_streamed`], on the failure embed;
+    /// - the verbose live tee of the run helpers in [`crate::run`], which
+    ///   also finish through `check_output`.
+    ///
+    /// [`StageLogger::status`], [`StageLogger::verbose`],
+    /// [`StageLogger::warn`] and [`StageLogger::error`] print their message
+    /// as given. A line built from the child's argv or its captured output
+    /// is passed through [`StageLogger::redact`] of this logger first:
+    ///
+    /// ```
+    /// # use anodizer_core::log::{StageLogger, Verbosity};
+    /// let mut cmd = std::process::Command::new("tool");
+    /// cmd.arg("--token=hunter2-example").env("API_TOKEN", "hunter2-example");
+    /// let log = StageLogger::new("demo", Verbosity::Quiet).with_child_env(&cmd);
+    /// let echo = log.redact("running tool --token=hunter2-example");
+    /// assert!(!echo.contains("hunter2-example"));
+    /// log.verbose(&echo);
+    /// ```
+    pub fn with_child_env(&self, cmd: &std::process::Command) -> Self {
+        self.with_job_env(cmd.get_envs().filter_map(|(k, v)| {
+            Some((
+                k.to_string_lossy().into_owned(),
+                v?.to_string_lossy().into_owned(),
+            ))
+        }))
+    }
+
+    /// A sibling logger whose redaction table also holds `env`, for a line
+    /// printed where no `Command` exists: a dry-run echo, or an argv echo
+    /// ahead of a retry loop that builds the command per attempt.
+    ///
+    /// Like [`StageLogger::with_child_env`], the table masks only what is
+    /// passed through [`StageLogger::redact`] or a run helper.
+    pub fn with_job_env(&self, env: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut pairs = self.redaction_env();
+        pairs.extend(env);
+        self.clone().with_env(pairs)
+    }
+
     /// Check if verbose output is enabled.
     pub fn is_verbose(&self) -> bool {
         self.verbosity >= Verbosity::Verbose

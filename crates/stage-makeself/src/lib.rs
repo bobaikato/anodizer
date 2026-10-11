@@ -553,6 +553,7 @@ impl Stage for MakeselfStage {
             &jobs,
             parallelism,
             "makeself",
+            "installer",
             &log,
             |job: &MakeselfJob| execute_makeself_job(job, verbosity),
         )?;
@@ -1730,11 +1731,13 @@ crates:
     // `cmd:` field), so every test that drives the real run path prepends a
     // stub dir to `PATH` via `FakeToolDir::activate` and is `#[serial]`.
 
+    #[cfg(unix)]
     use anodizer_core::test_helpers::fake_tool::FakeToolDir;
 
     /// A scratch project laid out for a live makeself run: a `dist` root, an
     /// on-disk binary artifact, and an on-disk startup script. Returns the
     /// pieces a test needs to build a `Context` and assert against `dist`.
+    #[cfg(unix)]
     struct MakeselfFixture {
         _tmp: tempfile::TempDir,
         dist: PathBuf,
@@ -1742,6 +1745,7 @@ crates:
         script_path: PathBuf,
     }
 
+    #[cfg(unix)]
     impl MakeselfFixture {
         fn new() -> Self {
             let tmp = tempfile::tempdir().unwrap();
@@ -1796,6 +1800,7 @@ crates:
     /// `proj_1.0.0_linux_amd64.run`, plus its work-dir-relative .run name (the
     /// stub `.creates()` writes the built archive into the job work dir, where
     /// `execute_makeself_job` renames it out to `dist/<filename>`).
+    #[cfg(unix)]
     fn linux_amd64_run_name() -> String {
         "proj_1.0.0_linux_amd64.run".to_string()
     }
